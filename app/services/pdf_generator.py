@@ -5,7 +5,7 @@ Reproduit le design du template A4 - 1_merge.pdf avec fpdf2.
 
 import io
 from fpdf import FPDF
-from app.schemas.models import TripGenerateResponse
+from app.schemas.models import TravelDocument, TravelSchema
 
 
 COLOR_BG_BEIGE = (232, 224, 213)       
@@ -40,35 +40,42 @@ class TripPDF(FPDF):
         self.set_line_width(0.4)
         self.rect(x, y, size, size, "D")
 
-    def _transport_icon_label(self, transport_type: str) -> str:
-        icons = {
-            "avion": "Avion",
-            "train": "Train",
-            "bus": "Bus",
-            "voiture": "Voiture",
-            "bateau": "Bateau",
-            "ferry": "Ferry",
-        }
-        return icons.get(transport_type.lower(), "--")
+    def _format_date(self, date_str: str) -> str:
+        """Formate une date ISO en dd/mm/yyyy."""
+        if not date_str:
+            return ""
+        try:
+            date_part = date_str.split("T")[0]
+            parts = date_part.split("-")
+            if len(parts) == 3:
+                return f"{parts[2]}/{parts[1]}/{parts[0]}"
+        except Exception:
+            pass
+        return date_str
 
-    def page_cover(self, trip: TripGenerateResponse):
+    def page_cover(self, doc: TravelDocument, schema: TravelSchema):
         self.add_page()
         self._set_bg(COLOR_BG_STEEL)
 
+        departure_name = schema.departurePoint.name if schema.departurePoint else "Départ"
+        return_name = schema.returnPoint.name if schema.returnPoint else "Arrivée"
+
         self.set_font("Helvetica", "", 16)
         self._set_color(COLOR_NAVY)
-        nom = f"{trip.request.departurePoint.name} - {trip.request.returnPoint.name}"
+        nom = f"{departure_name} - {return_name}"
         self.set_xy(20, 20)
         self.cell(0, 10, nom, new_x="LMARGIN", new_y="NEXT")
 
-        dates = f"{trip.request.startDate.strftime('%d/%m/%Y')} - {trip.request.endDate.strftime('%d/%m/%Y')}"
+        start = self._format_date(doc.startDate)
+        end = self._format_date(doc.endDate)
+        dates = f"{start} - {end}"
         self.set_font("Helvetica", "", 14)
         self.set_xy(120, 20)
         self.cell(70, 10, dates, align="R")
 
         self.set_font("Helvetica", "I", 38)
         self._set_color(COLOR_NAVY)
-        title = f"Voyage {trip.request.returnPoint.name}"
+        title = doc.name if doc.name else f"Voyage {return_name}"
         title_w = self.get_string_width(title)
         self.set_xy((210 - title_w) / 2, 100)
         self.cell(title_w, 20, title)
@@ -88,7 +95,7 @@ class TripPDF(FPDF):
         self.set_xy(20, 277)
         self.cell(0, 5, "Votre assistant de voyage intelligent")
 
-    def page_itinerary(self, trip: TripGenerateResponse):
+    def page_itinerary(self, doc: TravelDocument, schema: TravelSchema):
         self.add_page()
         self._set_bg(COLOR_BG_BEIGE)
 
@@ -97,22 +104,27 @@ class TripPDF(FPDF):
         self.set_xy(20, 20)
         self.cell(0, 15, "Ton voyage")
 
+        # Construire les étapes depuis les transportLegs
         steps = []
-        selected_ids = {t.id for t in trip.selection.selectedTransports}
-        selected_dates = {t.id: t.departureDate for t in trip.selection.selectedTransports}
+        for leg in schema.transportLegs:
+            selected = None
+            if leg.selectedTransportId:
+                for t in leg.availableTransports:
+                    if t.id == leg.selectedTransportId:
+                        selected = t
+                        break
 
-        for t in trip.request.availableTransports:
-            if t.id in selected_ids:
-                steps.append({
-                    "label": f"{t.departureLocation} - {t.arrivalLocation}",
-                    "location": t.departureLocation,
-                    "date": selected_dates.get(t.id, ""),
-                    "type": t.type,
-                })
+            steps.append({
+                "label": f"{leg.fromLocation} - {leg.toLocation}",
+                "location": leg.fromLocation,
+                "date": self._format_date(leg.date) if leg.date else "",
+                "type": selected.type.capitalize() if selected else "",
+            })
 
         if not steps:
-            steps = [{"label": "Départ", "location": trip.request.departurePoint.name,
-                       "date": trip.request.startDate.strftime("%d/%m/%Y"), "type": ""}]
+            departure_name = schema.departurePoint.name if schema.departurePoint else ""
+            steps = [{"label": "Départ", "location": departure_name,
+                       "date": self._format_date(doc.startDate), "type": ""}]
 
         positions = [
             (35, 60), (120, 90), (50, 130), (130, 170), (40, 210)
@@ -144,31 +156,7 @@ class TripPDF(FPDF):
             self.set_xy(px + 12, py + 6)
             self.cell(60, 6, f"{step['location']} - {step['date']}")
 
-        if len(steps) < len(positions):
-            idx = len(steps)
-            if idx < len(positions):
-                px, py = positions[idx]
-                if idx > 0:
-                    prev_x, prev_y = positions[idx - 1]
-                    self.set_draw_color(*COLOR_NAVY)
-                    self.set_line_width(0.5)
-                    self.line(prev_x + 10, prev_y + 12, px + 10, py)
-
-                self.set_draw_color(*COLOR_TERRACOTTA)
-                self.set_line_width(0.4)
-                self.rect(px - 2, py - 2, 8, 8, "D")
-                self.rect(px, py, 4, 4, "D")
-
-                self.set_font("Helvetica", "B", 18)
-                self._set_color(COLOR_NAVY)
-                self.set_xy(px + 12, py - 4)
-                self.cell(60, 10, f"Retour")
-
-                self.set_font("Helvetica", "", 10)
-                self.set_xy(px + 12, py + 6)
-                self.cell(60, 6, f"{trip.request.returnPoint.name} - {trip.selection.tripEndDate}")
-
-    def page_transports(self, trip: TripGenerateResponse):
+    def page_transports(self, doc: TravelDocument, schema: TravelSchema):
         self.add_page()
         self._set_bg(COLOR_BG_BEIGE)
 
@@ -177,12 +165,23 @@ class TripPDF(FPDF):
         self.set_xy(20, 20)
         self.cell(0, 15, "Transports")
 
-        selected_ids = {t.id for t in trip.selection.selectedTransports}
-        selected_dates = {t.id: t.departureDate for t in trip.selection.selectedTransports}
-        selected_transports = [t for t in trip.request.availableTransports if t.id in selected_ids]
+        # Extraire les transports sélectionnés depuis les legs
+        selected_transports = []
+        for leg in schema.transportLegs:
+            if leg.selectedTransportId:
+                for t in leg.availableTransports:
+                    if t.id == leg.selectedTransportId:
+                        selected_transports.append({
+                            "transport": t,
+                            "from": leg.fromLocation,
+                            "to": leg.toLocation,
+                            "date": self._format_date(leg.date) if leg.date else "",
+                        })
+                        break
 
         y = 55
-        for t in selected_transports:
+        for item in selected_transports:
+            t = item["transport"]
             if y > 260:
                 self.add_page()
                 self._set_bg(COLOR_BG_BEIGE)
@@ -194,7 +193,7 @@ class TripPDF(FPDF):
             self.cell(50, 8, t.departureHour)
             self.set_font("Helvetica", "", 11)
             self.set_xy(20, y + 8)
-            self.cell(50, 7, t.departureLocation)
+            self.cell(50, 7, item["from"])
 
             self.set_draw_color(*COLOR_NAVY)
             self.set_line_width(0.4)
@@ -208,10 +207,9 @@ class TripPDF(FPDF):
             self.set_xy(82, y + 10)
             self.cell(30, 6, type_label, align="C")
 
-            dep_date = selected_dates.get(t.id, "")
             self.set_font("Helvetica", "", 8)
             self.set_xy(82, y - 2)
-            self.cell(30, 6, dep_date, align="C")
+            self.cell(30, 6, item["date"], align="C")
 
             self.set_font("Helvetica", "B", 14)
             self._set_color(COLOR_NAVY)
@@ -219,13 +217,13 @@ class TripPDF(FPDF):
             self.cell(60, 8, t.arrivalHour, align="R")
             self.set_font("Helvetica", "", 11)
             self.set_xy(130, y + 8)
-            self.cell(60, 7, t.arrivalLocation, align="R")
+            self.cell(60, 7, item["to"], align="R")
 
             self._draw_separator(40, y + 22, 130)
 
             y += 35
 
-    def page_details(self, trip: TripGenerateResponse):
+    def page_details(self, doc: TravelDocument, schema: TravelSchema):
         self.add_page()
         self._set_bg(COLOR_BG_BEIGE)
 
@@ -234,16 +232,21 @@ class TripPDF(FPDF):
         self.set_xy(20, 20)
         self.cell(0, 15, "Details")
 
-        selected_ids = {t.id for t in trip.selection.selectedTransports}
-        selected_dates = {t.id: t.departureDate for t in trip.selection.selectedTransports}
-        selected_transports = [t for t in trip.request.availableTransports if t.id in selected_ids]
-
+        # Grouper les transports par date
         days = {}
-        for t in selected_transports:
-            date_str = selected_dates.get(t.id, "Jour ?")
-            if date_str not in days:
-                days[date_str] = []
-            days[date_str].append(t)
+        for leg in schema.transportLegs:
+            if leg.selectedTransportId:
+                for t in leg.availableTransports:
+                    if t.id == leg.selectedTransportId:
+                        date_str = self._format_date(leg.date) if leg.date else "Jour ?"
+                        if date_str not in days:
+                            days[date_str] = []
+                        days[date_str].append({
+                            "transport": t,
+                            "from": leg.fromLocation,
+                            "to": leg.toLocation,
+                        })
+                        break
 
         y = 50
         day_num = 0
@@ -262,7 +265,7 @@ class TripPDF(FPDF):
             self.set_xy(20, y)
             self.cell(45, 12, f"Jour {day_num}", align="C")
 
-            location = transports[0].departureLocation if transports else ""
+            location = transports[0]["from"] if transports else ""
             self.set_font("Helvetica", "", 12)
             self._set_color(COLOR_NAVY)
             self.set_xy(70, y)
@@ -277,7 +280,8 @@ class TripPDF(FPDF):
             self.cell(0, 8, "Itineraires")
             y += 12
 
-            for t in transports:
+            for item in transports:
+                t = item["transport"]
                 if y > 260:
                     self.add_page()
                     self._set_bg(COLOR_BG_BEIGE)
@@ -293,7 +297,7 @@ class TripPDF(FPDF):
                 self.cell(35, 6, f"{t.departureHour} - {t.arrivalHour}")
 
                 self.set_xy(80, y)
-                self.cell(50, 6, f"{t.departureLocation} > {t.arrivalLocation}")
+                self.cell(50, 6, f"{item['from']} > {item['to']}")
 
                 self.set_xy(150, y)
                 self.cell(40, 6, date_str)
@@ -342,7 +346,7 @@ class TripPDF(FPDF):
 
             y += 10
 
-    def page_billets(self, trip: TripGenerateResponse):
+    def page_billets(self, doc: TravelDocument, schema: TravelSchema):
         self.add_page()
         self._set_bg(COLOR_BG_STEEL)
 
@@ -351,12 +355,22 @@ class TripPDF(FPDF):
         self.set_xy(20, 20)
         self.cell(0, 15, "Billets")
 
-        selected_ids = {t.id for t in trip.selection.selectedTransports}
-        selected_dates = {t.id: t.departureDate for t in trip.selection.selectedTransports}
-        selected_transports = [t for t in trip.request.availableTransports if t.id in selected_ids]
+        selected_transports = []
+        for leg in schema.transportLegs:
+            if leg.selectedTransportId:
+                for t in leg.availableTransports:
+                    if t.id == leg.selectedTransportId:
+                        selected_transports.append({
+                            "transport": t,
+                            "from": leg.fromLocation,
+                            "to": leg.toLocation,
+                            "date": self._format_date(leg.date) if leg.date else "",
+                        })
+                        break
 
         y = 55
-        for t in selected_transports:
+        for item in selected_transports:
+            t = item["transport"]
             if y > 220:
                 self.add_page()
                 self._set_bg(COLOR_BG_STEEL)
@@ -370,14 +384,13 @@ class TripPDF(FPDF):
             self.set_xy(25, y + 5)
             self.cell(20, 8, t.type.capitalize())
 
-            dep_date = selected_dates.get(t.id, "")
             self.set_font("Helvetica", "", 11)
             self.set_xy(25, y + 13)
-            self.cell(80, 7, f"{dep_date}  {t.departureHour}")
+            self.cell(80, 7, f"{item['date']}  {t.departureHour}")
 
             self.set_font("Helvetica", "B", 11)
             self.set_xy(25, y + 22)
-            trajet = f"{t.departureLocation}  >  {t.arrivalLocation}"
+            trajet = f"{item['from']}  >  {item['to']}"
             self.cell(100, 7, trajet)
 
             self.set_font("Helvetica", "", 12)
@@ -397,7 +410,7 @@ class TripPDF(FPDF):
 
             y += 60
 
-    def page_checklist(self, trip: TripGenerateResponse):
+    def page_checklist(self, doc: TravelDocument, schema: TravelSchema):
         self.add_page()
         self._set_bg(COLOR_BG_BEIGE)
 
@@ -463,7 +476,7 @@ class TripPDF(FPDF):
 
             cat_idx += 1
 
-    def page_contacts(self, trip: TripGenerateResponse):
+    def page_contacts(self, doc: TravelDocument, schema: TravelSchema):
         self.add_page()
         self._set_bg(COLOR_BG_BEIGE)
 
@@ -531,19 +544,19 @@ class TripPDF(FPDF):
         self.cell(170, 7, "Depuis un mobile etranger, composez le +33 pour la France, etc.", align="C")
 
 
-def generate_trip_pdf(trip_data: TripGenerateResponse) -> bytes:
+def generate_trip_pdf(doc: TravelDocument, schema: TravelSchema) -> bytes:
     """
     Génère un PDF complet du récapitulatif de voyage.
     Retourne les bytes du PDF.
     """
     pdf = TripPDF()
 
-    pdf.page_cover(trip_data)
-    pdf.page_itinerary(trip_data)
-    pdf.page_transports(trip_data)
-    pdf.page_details(trip_data)
-    pdf.page_billets(trip_data)
-    pdf.page_checklist(trip_data)
-    pdf.page_contacts(trip_data)
+    pdf.page_cover(doc, schema)
+    pdf.page_itinerary(doc, schema)
+    pdf.page_transports(doc, schema)
+    pdf.page_details(doc, schema)
+    pdf.page_billets(doc, schema)
+    pdf.page_checklist(doc, schema)
+    pdf.page_contacts(doc, schema)
 
     return pdf.output()

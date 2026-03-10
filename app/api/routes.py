@@ -1,10 +1,14 @@
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
-from app.schemas.models import PromptRequest, PromptResponse, TripRequest, TripGenerateResponse, TripSelection
+from app.schemas.models import (
+    PromptRequest, PromptResponse, TripRequest, TripGenerateResponse, TripSelection,
+    TravelDocument, TravelSchema
+)
 from app.services.gemini_ai import generate_response, generate_structured_response
 from app.services.pdf_generator import generate_trip_pdf
 import uuid
 import io
+import json
 from datetime import datetime, timezone
 
 router = APIRouter()
@@ -27,23 +31,19 @@ async def ask_gemini(request: PromptRequest):
 def build_trip_prompt(data: TripRequest) -> str:
     """Construit le prompt final à envoyer à Gemini."""
     
-    # 1. Gestion des enfants
     if data.preferences.travelWithChildren and data.preferences.children:
         ages = ", ".join([f"{c.age} ans" for c in data.preferences.children])
         children_info = f"Enfants présents : {ages}"
     else:
         children_info = "Pas d'enfants"
 
-    # 2. Objectif du voyage
     if data.tripGoal == "cheapest":
         goal_instruction = "L'objectif est de minimiser le coût total. Choisis les options les moins chères."
     else:
         goal_instruction = "L'objectif est de visiter le maximum d'endroits différents. Sélectionne plusieurs logements dans différentes zones si possible."
 
-    # 3. Calcul de la durée
     duration_days = (data.endDate - data.startDate).days
 
-    # 4. Formatage des logements
     if data.availableLodgings:
         lodgings_list = []
         for l in data.availableLodgings:
@@ -58,7 +58,6 @@ def build_trip_prompt(data: TripRequest) -> str:
     else:
         lodgings_str = "Aucun logement disponible"
 
-    # 5. Formatage des transports
     if data.availableTransports:
         transports_str = "\n".join([
             f"- ID: {t.id} | Type: {t.type} | {t.departureLocation} → {t.arrivalLocation} | "
@@ -68,10 +67,8 @@ def build_trip_prompt(data: TripRequest) -> str:
     else:
         transports_str = "Aucun transport disponible"
 
-    # 6. Préférence écologique
     eco_str = "Privilégie les options écologiques si possible.\n" if data.preferences.ecologicalPreference else ""
 
-    # 7. Assemblage final du prompt
     prompt = f"""Tu es un assistant de planification de voyages. Ton rôle est de sélectionner les meilleurs transports et logements parmi les options disponibles, en respectant le budget donné.
 
 ## Objectif du voyage
@@ -133,32 +130,26 @@ async def generate_trip(request: TripRequest):
 
 
 @router.post("/trip/pdf", tags=["Trips"])
-async def generate_trip_pdf_endpoint(request: TripRequest):
+async def generate_trip_pdf_endpoint(request: TravelDocument):
     """
-    Génère un itinéraire de voyage et retourne un PDF récapitulatif complet.
+    Reçoit un document de voyage complet et retourne un PDF récapitulatif.
     """
     try:
-        prompt = build_trip_prompt(request)
-        selection = await generate_structured_response(prompt, TripSelection)
+        schema = TravelSchema.model_validate(json.loads(request.schema_))
 
-        trip_response = TripGenerateResponse(
-            success=True,
-            tripId=str(uuid.uuid4()),
-            createdAt=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-            request=request,
-            selection=selection
-        )
+        pdf_bytes = generate_trip_pdf(request, schema)
 
-        pdf_bytes = generate_trip_pdf(trip_response)
-
+        filename = request.name.replace(' ', '_') if request.name else 'voyage'
         return StreamingResponse(
             io.BytesIO(pdf_bytes),
             media_type="application/pdf",
             headers={
-                "Content-Disposition": f"attachment; filename=voyage_{trip_response.tripId}.pdf"
+                "Content-Disposition": f'attachment; filename="{filename}.pdf"'
             }
         )
 
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Le champ schema contient un JSON invalide.")
     except Exception as e:
         print(f"Erreur lors de la génération du PDF: {e}")
         raise HTTPException(status_code=500, detail=str(e))
