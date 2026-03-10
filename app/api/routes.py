@@ -1,16 +1,15 @@
 from fastapi import APIRouter, HTTPException
-from app.schemas.models import PromptRequest, PromptResponse, TripRequest, TripGenerateResponse
-from app.services.gemini_ai import generate_response
-import json
-import re
+from fastapi.responses import StreamingResponse
+from app.schemas.models import PromptRequest, PromptResponse, TripRequest, TripGenerateResponse, TripSelection
+from app.services.gemini_ai import generate_response, generate_structured_response
+from app.services.pdf_generator import generate_trip_pdf
 import uuid
+import io
 from datetime import datetime, timezone
 
 router = APIRouter()
 
-# ==========================================
-# ROUTE 1 : Question simple (Chat basique)
-# ==========================================
+
 @router.post("/ask", response_model=PromptResponse, tags=["AI Interaction"])
 async def ask_gemini(request: PromptRequest):
     """
@@ -24,9 +23,7 @@ async def ask_gemini(request: PromptRequest):
     return PromptResponse(response=ai_answer)
 
 
-# ==========================================
-# UTILITAIRE : Construction du Prompt Voyage
-# ==========================================
+
 def build_trip_prompt(data: TripRequest) -> str:
     """Construit le prompt final à envoyer à Gemini."""
     
@@ -106,20 +103,7 @@ IMPORTANT :
    - La date de début de l'hébergement doit correspondre à la date d'arrivée sur place.
    - La date de fin de l'hébergement doit correspondre à la date de départ pour le retour.
 2. Si le budget est insuffisant pour la durée totale ({duration_days} jours), tu DOIS raccourcir la durée du voyage (réduire le nombre de nuits) pour rentrer dans le budget.
-{eco_str}
-Réponds UNIQUEMENT avec un objet JSON au format suivant (sans backticks markdown) :
-{{
-  "selectedTransports": [
-    {{ "$id": "transport-xxx", "departureDate": "YYYY-MM-DD" }}
-  ],
-  "selectedLodgings": [
-    {{ "$id": "lodging-xxx", "numberOfNights": 3 }}
-  ],
-  "tripStartDate": "YYYY-MM-DD",
-  "tripEndDate": "YYYY-MM-DD",
-  "totalCost": "XXX €",
-  "remainingBudget": "XXX €"
-}}"""
+{eco_str}"""
 
     return prompt.strip()
 
@@ -133,19 +117,8 @@ async def generate_trip(request: TripRequest):
         prompt = build_trip_prompt(request)
         print(f"Prompt généré: {prompt}")
 
-        generated_content = await generate_response(prompt)
+        selection = await generate_structured_response(prompt, TripSelection)
 
-        cleaned_json = re.sub(r'```json\n?', '', generated_content)
-        cleaned_json = re.sub(r'```\n?', '', cleaned_json).strip()
-
-        try:
-            selection = json.loads(cleaned_json)
-        except json.JSONDecodeError:
-            print(f"Erreur de parsing JSON: {cleaned_json}")
-            raise HTTPException(
-                status_code=500, 
-                detail={"error": "Réponse de l'IA invalide", "rawContent": generated_content}
-            )
         return TripGenerateResponse(
             success=True,
             tripId=str(uuid.uuid4()),
@@ -154,8 +127,38 @@ async def generate_trip(request: TripRequest):
             selection=selection
         )
 
-    except HTTPException:
-        raise
     except Exception as e:
         print(f"Erreur lors de la génération du voyage: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/trip/pdf", tags=["Trips"])
+async def generate_trip_pdf_endpoint(request: TripRequest):
+    """
+    Génère un itinéraire de voyage et retourne un PDF récapitulatif complet.
+    """
+    try:
+        prompt = build_trip_prompt(request)
+        selection = await generate_structured_response(prompt, TripSelection)
+
+        trip_response = TripGenerateResponse(
+            success=True,
+            tripId=str(uuid.uuid4()),
+            createdAt=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            request=request,
+            selection=selection
+        )
+
+        pdf_bytes = generate_trip_pdf(trip_response)
+
+        return StreamingResponse(
+            io.BytesIO(pdf_bytes),
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f"attachment; filename=voyage_{trip_response.tripId}.pdf"
+            }
+        )
+
+    except Exception as e:
+        print(f"Erreur lors de la génération du PDF: {e}")
         raise HTTPException(status_code=500, detail=str(e))
