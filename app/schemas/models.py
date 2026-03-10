@@ -56,9 +56,29 @@ class TripRequest(BaseModel):
     availableTransports: List[Transport] = []
     preferences: Preferences
 
+class SelectedTransport(BaseModel):
+    id: str = Field(..., alias="$id")
+    departureDate: str
+
+    model_config = ConfigDict(populate_by_name=True)
+
+class SelectedLodging(BaseModel):
+    id: str = Field(..., alias="$id")
+    numberOfNights: int
+
+    model_config = ConfigDict(populate_by_name=True)
+
+class TripSelection(BaseModel):
+    selectedTransports: List[SelectedTransport]
+    selectedLodgings: List[SelectedLodging]
+    tripStartDate: str
+    tripEndDate: str
+    totalCost: str
+    remainingBudget: str
+
 class TripGenerateResponse(BaseModel):
     success: bool
     tripId: str
     createdAt: str
     request: TripRequest
-    selection: Dict[str, Any]
+    selection: TripSelection
