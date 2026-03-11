@@ -105,7 +105,7 @@ class SchemaTransport(BaseModel):
     type: str
     departureHour: str
     arrivalHour: str
-    price: float
+    price: str
     company: str
 
 class TransportLeg(BaseModel):
