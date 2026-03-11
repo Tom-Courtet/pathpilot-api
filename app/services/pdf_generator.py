@@ -21,10 +21,8 @@ def generate_trip_pdf(doc: TravelDocument, schema: TravelSchema) -> bytes:
     Génère un PDF complet du récapitulatif de voyage via HTML/CSS.
     Retourne les bytes du PDF.
     """
-    # 1. Préparation des données formatées pour le template
     steps = []
     for leg in schema.transportLegs:
-        # Logique d'extraction des étapes (similaire à ton code d'origine)
         steps.append({
             "location": leg.fromLocation,
             "date": format_date(leg.date) if leg.date else "",
@@ -34,19 +32,15 @@ def generate_trip_pdf(doc: TravelDocument, schema: TravelSchema) -> bytes:
         departure_name = schema.departurePoint.name if schema.departurePoint else "Départ"
         steps = [{"location": departure_name, "date": format_date(doc.startDate)}]
 
-    # 2. Configuration de Jinja2 (assure-toi que le dossier 'templates' existe à la racine)
     env = Environment(loader=FileSystemLoader('templates'))
-    template = env.get_template('template_voyage.html')
+    template = env.get_template('template.html')
 
-    # 3. Rendu du HTML avec les variables injectées
     html_out = template.render(
         doc=doc,
         schema=schema,
         steps=steps,
-        # Tu peux injecter ici les autres données préparées (transports, checklist, etc.)
     )
 
-    # 4. Conversion du HTML en PDF avec WeasyPrint
     pdf_bytes = HTML(string=html_out).write_pdf()
 
     return pdf_bytes
