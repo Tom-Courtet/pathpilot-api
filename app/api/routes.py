@@ -42,6 +42,9 @@ def build_trip_prompt(data: TripRequest) -> str:
     else:
         goal_instruction = "L'objectif est de visiter le maximum d'endroits différents. Sélectionne plusieurs logements dans différentes zones si possible."
 
+    # Formater les dates une seule fois pour les réutiliser facilement
+    start_date_str = data.startDate.strftime('%d/%m/%Y')
+    end_date_str = data.endDate.strftime('%d/%m/%Y')
     duration_days = (data.endDate - data.startDate).days
 
     if data.availableLodgings:
@@ -67,24 +70,24 @@ def build_trip_prompt(data: TripRequest) -> str:
     else:
         transports_str = "Aucun transport disponible"
 
-    eco_str = "Privilégie les options écologiques si possible.\n" if data.preferences.ecologicalPreference else ""
+    eco_str = "4. **Écologie :** Privilégie les options écologiques si possible.\n" if data.preferences.ecologicalPreference else ""
 
-    prompt = f"""Tu es un assistant de planification de voyages. Ton rôle est de sélectionner les meilleurs transports et logements parmi les options disponibles, en respectant le budget donné.
+    prompt = f"""Tu es un assistant de planification de voyages expert en logistique. Ton rôle est de sélectionner les meilleurs transports et logements parmi les options disponibles, en respectant le budget donné.
 
 ## Objectif du voyage
 {goal_instruction}
 
-## Budget total
-{data.budget}
+## Budget total maximum
+{data.budget}€
 
 ## Nombre de personnes
-{data.numberOfPeople}
+{data.numberOfPeople} personne(s)
+{children_info}
 
-## Trajet
-- Départ : {data.departurePoint.name}, {data.departurePoint.country}
-- Arrivée : {data.returnPoint.name}, {data.returnPoint.country}
-- Dates souhaitées : du {data.startDate.strftime('%d/%m/%Y')} au {data.endDate.strftime('%d/%m/%Y')}
-- {children_info}
+## Trajet souhaité
+- Départ de : {data.departurePoint.name}, {data.departurePoint.country}
+- Arrivée à : {data.returnPoint.name}, {data.returnPoint.country}
+- Dates : du {start_date_str} au {end_date_str} ({duration_days} jours)
 
 ## Logements disponibles
 {lodgings_str}
@@ -92,15 +95,17 @@ def build_trip_prompt(data: TripRequest) -> str:
 ## Transports disponibles
 {transports_str}
 
-## Instructions
-Sélectionne les transports et logements qui rentrent dans le budget total.
-IMPORTANT :
-1. Les dates et horaires doivent se suivre LOGIQUEMENT et CHRONOLOGIQUEMENT.
-   - Si tu chaînes plusieurs transports (ex: A -> B puis B -> C), la date/heure d'arrivée du premier DOIT être avant la date/heure de départ du suivant.
-   - La date de début de l'hébergement doit correspondre à la date d'arrivée sur place.
-   - La date de fin de l'hébergement doit correspondre à la date de départ pour le retour.
-2. Si le budget est insuffisant pour la durée totale ({duration_days} jours), tu DOIS raccourcir la durée du voyage (réduire le nombre de nuits) pour rentrer dans le budget.
-{eco_str}"""
+## Instructions Critiques (À RESPECTER IMPÉRATIVEMENT) :
+1. **Limites de dates strictes :** L'intégralité du voyage DOIT se dérouler entre le {start_date_str} et le {end_date_str}. Tu n'as pas le droit de sélectionner un transport ou un logement en dehors de cette plage de dates.
+2. **Continuité absolue (AUCUN TROU) :** Chaque jour et chaque nuit de l'itinéraire sélectionné doit être couvert. Il ne peut y avoir aucun jour vide sans logement ou sans transport en cours. Les dates doivent se suivre parfaitement.
+3. **Logique Chronologique :**
+   - La date et l'heure de check-in du premier hébergement doivent correspondre à l'arrivée du transport aller.
+   - Si tu combines plusieurs transports (ex: A -> B puis B -> C), l'heure d'arrivée du premier DOIT être antérieure à l'heure de départ du suivant. Laisse un délai raisonnable pour la correspondance.
+4. **Gestion du budget :** Si le budget est insuffisant pour tenir les {duration_days} jours, tu DOIS raccourcir la durée du voyage en avançant la date de retour. La règle de continuité absolue s'applique toujours sur ce voyage raccourci.
+{eco_str}
+## Format de réponse
+Pour t'assurer qu'il n'y a aucune erreur de dates, commence TOUJOURS ta réponse par un récapitulatif "Jour par Jour" (ex: Jour 1 : [Date] - [Action/Lieu]) avant de lister les ID des transports et logements choisis.
+"""
 
     return prompt.strip()
 

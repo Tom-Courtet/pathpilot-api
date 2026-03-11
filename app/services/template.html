@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Récapitulatif de Voyage</title>
+    <style>
+        @page {
+            size: A4;
+            margin: 0;
+        }
+
+        body {
+            font-family: 'Helvetica', sans-serif;
+            margin: 0;
+            padding: 0;
+            color: #2C3E5A;
+        }
+
+        .page {
+            width: 210mm;
+            height: 297mm;
+            page-break-after: always;
+            position: relative;
+            box-sizing: border-box;
+            padding: 20mm;
+        }
+
+        .bg-steel {
+            background-color: #A3B1BF;
+        }
+
+        .bg-beige {
+            background-color: #E8E0D5;
+        }
+
+        .text-navy {
+            color: #2C3E5A;
+        }
+
+        .text-terracotta {
+            color: #8B4513;
+        }
+
+        .cover-header {
+            display: flex;
+            justify-content: space-between;
+            font-size: 16px;
+        }
+
+        .cover-title {
+            text-align: center;
+            font-size: 38px;
+            font-style: italic;
+            margin-top: 80px;
+        }
+
+        .cover-image-placeholder {
+            background-color: #F0EBE4;
+            height: 120px;
+            width: 150px;
+            margin: 40px auto;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #B4AFA8;
+        }
+
+        .etape-container {
+            position: relative;
+            height: 200px;
+        }
+
+        h1 {
+            font-size: 36px;
+            font-weight: normal;
+            margin-top: 0;
+        }
+
+        .separator {
+            border-bottom: 2px solid #8B4513;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="page bg-steel">
+        <div class="cover-header">
+            <div>{{ schema.departurePoint.name }} - {{ schema.returnPoint.name }}</div>
+            <div>{{ doc.startDate }} - {{ doc.endDate }}</div>
+        </div>
+
+        <div class="cover-title">
+            {{ doc.name if doc.name else 'Titre du Voyage' }}
+        </div>
+
+        <div class="cover-image-placeholder">
+            Image de destination
+        </div>
+
+        <div style="position: absolute; bottom: 20mm;">
+            <div style="font-weight: bold; font-size: 20px;">PathPilot</div>
+            <div style="font-size: 8px;">Votre assistant de voyage intelligent</div>
+        </div>
+    </div>
+
+    <div class="page bg-beige">
+        <h1>Ton voyage</h1>
+        <div class="etape-container">
+            {% for step in steps %}
+            <div class="etape" style="margin-bottom: 20px;">
+                <span class="text-terracotta" style="font-weight: bold; font-size: 18px;">Etape {{ loop.index
+                    }}</span><br>
+                <span style="font-size: 10px;">{{ step.location }} - {{ step.date }}</span>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="page bg-beige">
+        <h1>Contacts utiles</h1>
+        <div style="text-align: center; color: #8B4513; font-size: 60px; font-weight: bold; margin-top: 40px;">
+            112
+        </div>
+        <div style="text-align: center; margin-bottom: 30px;">
+            Numéro d'urgence européen
+        </div>
+    </div>
+
+</body>
+
+</html>
