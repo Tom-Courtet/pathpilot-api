@@ -1,4 +1,5 @@
 import io
+from pathlib import Path # <-- Ajout de pathlib
 from jinja2 import Environment, FileSystemLoader
 from weasyprint import HTML
 from app.schemas.models import TravelDocument, TravelSchema
@@ -32,7 +33,8 @@ def generate_trip_pdf(doc: TravelDocument, schema: TravelSchema) -> bytes:
         departure_name = schema.departurePoint.name if schema.departurePoint else "Départ"
         steps = [{"location": departure_name, "date": format_date(doc.startDate)}]
 
-    env = Environment(loader=FileSystemLoader('templates'))
+    current_dir = Path(__file__).parent.resolve()
+    env = Environment(loader=FileSystemLoader(str(current_dir)))
     template = env.get_template('template.html')
 
     html_out = template.render(
